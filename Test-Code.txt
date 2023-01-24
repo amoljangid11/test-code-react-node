@@ -1,0 +1,529 @@
+1. Product List api with serach and filter
+
+const express = require('express');
+const router = express.Router();
+
+// fetch product name search api
+
+
+router.get('/list/search/:name', async (req, res) => {
+  try {
+    const name = req.params.name;
+
+    const productDoc = await Product.find(
+      { name: { $regex: new RegExp(name), $options: 'is' }, isActive: true },
+      { name: 1, slug: 1, imageUrl: 1, price: 1, _id: 0 }
+    );
+
+    if (productDoc.length < 0) {
+      return res.status(404).json({
+        message: 'No product found.'
+      });
+    }
+
+    res.status(200).json({
+      products: productDoc
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: 'Your request could not be processed. Please try again.'
+    });
+  }
+});
+
+// fetch store products by advanced filters api
+
+
+router.get('/list', async (req, res) => {
+  try {
+    let {
+      sortOrder,
+      rating,
+      max,
+      min,
+      category,
+      page = 1,
+      limit = 10
+    } = req.query;
+    sortOrder = JSON.parse(sortOrder);
+
+    const categoryFilter = category ? { category } : {};
+    const basicQuery = getStoreProductsQuery(min, max, rating);
+
+    const userDoc = await checkAuth(req);
+    const categoryDoc = await Category.findOne(
+      { slug: categoryFilter.category, isActive: true },
+      'products -_id'
+    );
+
+    if (categoryDoc && categoryFilter !== category) {
+      basicQuery.push({
+        $match: {
+          isActive: true,
+          _id: {
+            $in: Array.from(categoryDoc.products)
+          }
+        }
+      });
+    }
+
+    let products = null;
+    const productsCount = await Product.aggregate(basicQuery);
+    const count = productsCount.length;
+    const size = count > limit ? page - 1 : 0;
+    const currentPage = count > limit ? Number(page) : 1;
+
+
+
+2. Add Item to Cart API :
+
+router.post('/add', auth, async (req, res) => {
+  try {
+    const user = req.user._id;
+    const items = req.body.products;
+
+    const products = store.caculateItemsSalesTax(items);
+
+    const cart = new Cart({
+      user,
+      products
+    });
+
+    const cartDoc = await cart.save();
+
+    decreaseQuantity(products);
+
+    res.status(200).json({
+      success: true,
+      cartId: cartDoc.id
+    });
+  } catch (error) {
+    res.status(400).json({
+      error: 'Your request could not be processed. Please try again.'
+    });
+  }
+});
+
+
+
+3. List Cart Items API :
+
+//get cart items
+
+router.get("/cart", Auth, async (req, res) => {
+  const owner = req.user._id;
+
+  try {
+    const cart = await Cart.findAll({ owner });
+    if (cart && cart.items.length > 0) {
+      res.status(200).send(cart);
+    } else {
+      res.send(null);
+    }
+  } catch (error) {
+    res.status(500).send();
+  }
+});
+
+
+
+5. Get product details by using name/id :
+
+
+// fetch product api
+router.get(
+  'name/:id',
+  auth,
+  role.checkRole(role.ROLES.Admin, role.ROLES.Merchant),
+  async (req, res) => {
+    try {
+      const productId = req.params.id;
+
+      let productDoc = null;
+
+      if (req.user.merchant) {
+        const brands = await Brand.find({
+          merchant: req.user.merchant
+        }).populate('merchant', '_id');
+
+        const brandId = brands[0]['_id'];
+
+        productDoc = await Product.findOne({ _id: productId })
+          .populate({
+            path: 'brand',
+            select: 'name'
+          })
+          .where('brand', brandId);
+      } else {
+        productDoc = await Product.findOne({ _id: productId }).populate({
+          path: 'brand',
+          select: 'name'
+        });
+      }
+
+      if (!productDoc) {
+        return res.status(404).json({
+          message: 'No product found.'
+        });
+      }
+
+      res.status(200).json({
+        product: productDoc
+      });
+    } catch (error) {
+      res.status(400).json({
+        error: 'Your request could not be processed. Please try again.'
+      });
+    }
+  }
+);
+
+
+
+React :
+
+1. Home Page - list all the products with search and filters :
+
+
+SearchBarSection.js :
+
+import React, {useState} from "react";
+
+
+const SearchBarSection = () => {
+  const [products, setProducts] = useState([
+    {
+      id: 1,
+      title: "Check Textured Coat",
+      category: "Coat",
+      price: "175.4",
+      tags: "coat check textured camel brown long sleeves buttoned cuffs",
+    },
+    {
+      id: 2,
+      title: "Contrast Check Coat",
+      category: "Coat",
+      price: "155.4",
+      tags: "coat camel black grey marl lapel collar hip flap pockets",
+    },
+    {
+      id: 3,
+      title: "White Coat",
+      category: "Coat",
+      price: "125.4",
+      tags: "coat camel white short sleeves double-breasted button",
+    },
+    {
+      id: 4,
+      title: "Basic Hoodie",
+      category: "Hoodies / SweatShirts",
+      price: "55.4",
+      tags: "hoodie solid plain purple long baggy hood",
+    },
+    {
+      id: 5,
+      title: "Basic Hoodie",
+      category: "Hoodies / SweatShirts",
+      price: "55.4",
+      tags: "hoodie solid plain black long baggy hood",
+    },
+    {
+      id: 6,
+      title: "Basic short Hoodie",
+      category: "Hoodies / SweatShirts",
+      price: "55.4",
+      tags: "hoodie solid plain gray grey short hood",
+    },
+  ]);
+
+  const [search, setSearch] = useState("");
+
+  const filteredProducts = products.filter((product) => {
+    if (
+      product.tags.toLowerCase().includes(search) ||
+      product.title.toLowerCase().includes(search) ||
+      product.category.toLowerCase().includes(search)
+    ) {
+      return product;
+    }
+  });
+
+  return (
+    <div className="searchBarSection">
+      <div class="searchBar">
+        <input
+          className="input"
+          onChange={(e) => {
+            setSearch(e.target.value.toLowerCase());
+          }}
+        />
+        <button className="button">
+          <svg
+            className="w-6 h-6"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+            xmlns="http://www.w3.org/2000/svg"
+          >
+            <path
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              stroke-width="2"
+              d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+            ></path>
+          </svg>
+        </button>
+      </div>
+      <div className="display">
+        {filteredProducts.map((product) => (
+          <div className="product">
+            <h6>{product.category}</h6>
+            <h3>{product.title}</h3>
+            <h5>{product.price}</h5>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
+export default SearchBarSection;
+
+
+App.js :
+
+import React from "react";
+
+import SearchBarSection from "./Projects/SearchBarSection/SearchBarSection";
+
+function App() {
+  return (
+    <div>
+      <SearchBarSection />
+    </div>
+  );
+}
+
+export default App;
+
+
+2. Common Header Component :
+
+import React from "react";
+import { LinkContainer } from "react-router-bootstrap";
+import { Nav, Navbar, Container } from "react-bootstrap";
+const Header = () => {
+  return (
+    <header>
+      <Navbar bg="dark" variant="dark" expand="lg" collapseOnSelect>
+        <Container>
+          <LinkContainer to="/">
+            <Navbar.Brand>GoKart</Navbar.Brand>
+          </LinkContainer>
+
+          <Navbar.Toggle aria-controls="basic-navbar-nav" />
+          <Navbar.Collapse id="basic-navbar-nav">
+            <Nav className="ml-auto">
+              <LinkContainer to="/cart">
+                <Nav.Link>
+                  <i className="fas fa-shopping-cart"></i> Cart
+                </Nav.Link>
+              </LinkContainer>
+              <LinkContainer to="/login">
+                <Nav.Link>
+                  <i className="fas fa-user"></i> Sign In
+                </Nav.Link>
+              </LinkContainer>
+            </Nav>
+          </Navbar.Collapse>
+        </Container>
+      </Navbar>
+    </header>
+  );
+};
+
+export default Header;
+
+
+3. Product Detail Page :
+
+
+import React from "react";
+import { Link } from "react-router-dom";
+import { Card } from "react-bootstrap";
+import Rating from "../components/Rating";
+
+const Product = ({ product }) => {
+  return (
+    <div>
+      <Card className="my-3 p-3 rounded">
+        <Link to={`/product/${product._id}`}>
+          <Card.Img src={product.image} variant="top" />
+        </Link>
+
+        <Card.Body>
+          <Link to={`/product/${product._id}`}>
+            <Card.Title as="div">
+              <strong>{product.name}</strong>
+            </Card.Title>
+          </Link>
+
+          <Card.Text as="div">
+            {/* <div className='my-3'>
+                        {product.rating} from {product.numReviews} reviews
+                    </div> */}
+            <Rating
+              value={product.rating}
+              text={`${product.numReviews} reviews`}
+            />
+          </Card.Text>
+
+          <Card.Text as="h3">₹{Math.round(product.price * 76)}</Card.Text>
+        </Card.Body>
+      </Card>
+    </div>
+  );
+};
+
+export default Product;
+
+
+4. Add to cart with increase option :
+
+import React from 'react';
+
+import Checkbox from '../../Common/Checkbox';
+import { HeartIcon } from '../../Common/Icon';
+
+const AddToWishList = props => {
+  const { id, liked, enabled, updateWishlist } = props;
+
+  return (
+    <div className='add-to-wishlist'>
+      <Checkbox
+        id={`checkbox_${id}`}
+        name={'wishlist'}
+        disabled={!enabled}
+        checked={liked}
+        label={<HeartIcon />}
+        onChange={(_, value) => {
+          updateWishlist(value, id);
+        }}
+      />
+    </div>
+  );
+};
+
+export default AddToWishList;
+
+5.Simple Cart Page :
+
+
+import React from 'react';
+
+import { Container, Row, Col } from 'reactstrap';
+
+const CartSummary = props => {
+  const { cartTotal } = props;
+
+  return (
+    <div className='cart-summary'>
+      <Container>
+        <Row className='mb-2 summary-item'>
+          <Col xs='9'>
+            <p className='summary-label'>Free Shippling</p>
+          </Col>
+          <Col xs='3' className='text-right'>
+            <p className='summary-value'>$0</p>
+          </Col>
+        </Row>
+        <Row className='mb-2 summary-item'>
+          <Col xs='9'>
+            <p className='summary-label'>Total</p>
+          </Col>
+          <Col xs='3' className='text-right'>
+            <p className='summary-value'>${cartTotal}</p>
+          </Col>
+        </Row>
+      </Container>
+    </div>
+  );
+};
+
+export default CartSummary;
+
+
+6. Checkout functionality :
+
+import React from 'react';
+
+import Button from '../../Common/Button';
+
+const Checkout = props => {
+  const { authenticated, handleShopping, handleCheckout, placeOrder } = props;
+
+  return (
+    <div className='easy-checkout'>
+      <div className='checkout-actions'>
+        <Button
+          variant='primary'
+          text='Continue shopping'
+          onClick={() => handleShopping()}
+        />
+        {authenticated ? (
+          <Button
+            variant='primary'
+            text='Place Order'
+            onClick={() => placeOrder()}
+          />
+        ) : (
+          <Button
+            variant='primary'
+            text='Proceed To Checkout'
+            onClick={() => handleCheckout()}
+          />
+        )}
+      </div>
+    </div>
+  );
+};
+
+export default Checkout;
+
+
+7. Order Confirmation :
+
+import React from 'react';
+
+import { Row, Col } from 'reactstrap';
+
+import OrderMeta from '../OrderMeta';
+import OrderItems from '../OrderItems';
+import OrderSummary from '../OrderSummary';
+
+const OrderDetails = props => {
+  const { order, user, cancelOrder, updateOrderItemStatus, onBack } = props;
+  return (
+    <div className='order-details'>
+      <Row>
+        <Col xs='12' md='12'>
+          <OrderMeta order={order} cancelOrder={cancelOrder} onBack={onBack} />
+        </Col>
+      </Row>
+      <Row className='mt-5'>
+        <Col xs='12' lg='8'>
+          <OrderItems
+            order={order}
+            user={user}
+            updateOrderItemStatus={updateOrderItemStatus}
+          />
+        </Col>
+        <Col xs='12' lg='4' className='mt-5 mt-lg-0'>
+          <OrderSummary order={order} />
+        </Col>
+      </Row>
+    </div>
+  );
+};
+
+export default OrderDetails;
